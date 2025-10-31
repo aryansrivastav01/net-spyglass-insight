@@ -1,1 +1,4 @@
 project_id = "gdoizubovnzaiaeuxctz"
+
+[functions.parse-pcap]
+verify_jwt = false

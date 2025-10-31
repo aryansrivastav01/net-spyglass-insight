@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { Upload, Activity } from "lucide-react";
+import { useState, useMemo, useRef } from "react";
+import { Upload, Activity, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TrafficStats } from "@/components/TrafficStats";
 import { PacketTable } from "@/components/PacketTable";
@@ -8,15 +8,24 @@ import { TrafficTimeline } from "@/components/TrafficTimeline";
 import { FilterBar } from "@/components/FilterBar";
 import { generateMockPackets, generateProtocolData, generateTimelineData } from "@/utils/mockData";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 const Index = () => {
   const { toast } = useToast();
-  const [packets] = useState(() => generateMockPackets(50));
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [packets, setPackets] = useState(() => generateMockPackets(50));
+  const [protocolData, setProtocolData] = useState(generateProtocolData());
+  const [timelineData, setTimelineData] = useState(generateTimelineData());
+  const [stats, setStats] = useState({
+    totalPackets: 50,
+    anomalies: 5,
+    protocols: 5,
+    activeConnections: 35,
+  });
   const [searchTerm, setSearchTerm] = useState("");
   const [protocolFilter, setProtocolFilter] = useState("all");
-
-  const protocolData = generateProtocolData();
-  const timelineData = generateTimelineData();
+  const [isUploading, setIsUploading] = useState(false);
+  const [fileName, setFileName] = useState<string | null>(null);
 
   const filteredPackets = useMemo(() => {
     return packets.filter((packet) => {
@@ -33,24 +42,59 @@ const Index = () => {
     });
   }, [packets, searchTerm, protocolFilter]);
 
-  const stats = useMemo(() => {
-    const anomalies = packets.filter((p) => p.isAnomaly).length;
-    const protocols = new Set(packets.map((p) => p.protocol)).size;
-    const activeConnections = Math.floor(Math.random() * 50) + 20;
-
-    return {
-      totalPackets: packets.length,
-      anomalies,
-      protocols,
-      activeConnections,
-    };
-  }, [packets]);
-
   const handleFileUpload = () => {
-    toast({
-      title: "Feature Coming Soon",
-      description: "PCAP file upload will be available in the next version",
-    });
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.pcap') && !file.name.endsWith('.pcapng')) {
+      toast({
+        title: "Invalid File",
+        description: "Please upload a valid PCAP file (.pcap or .pcapng)",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUploading(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const { data, error } = await supabase.functions.invoke('parse-pcap', {
+        body: formData,
+      });
+
+      if (error) throw error;
+
+      setPackets(data.packets);
+      setProtocolData(data.protocolData);
+      setTimelineData(data.timelineData);
+      setStats(data.stats);
+      setFileName(file.name);
+
+      toast({
+        title: "PCAP Loaded Successfully",
+        description: `Parsed ${data.stats.totalPackets} packets from ${file.name}`,
+      });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to parse the PCAP file';
+      console.error('Error parsing PCAP:', error);
+      toast({
+        title: "Error Parsing PCAP",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
   };
 
   return (
@@ -66,18 +110,47 @@ const Index = () => {
             <p className="text-muted-foreground mt-2">
               Network Traffic Analysis & Packet Inspection
             </p>
+            {fileName && (
+              <p className="text-sm text-success mt-1">
+                Loaded: {fileName}
+              </p>
+            )}
           </div>
-          <Button
-            onClick={handleFileUpload}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground glow-cyan"
-          >
-            <Upload className="w-4 h-4 mr-2" />
-            Upload PCAP
-          </Button>
+          <div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pcap,.pcapng"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+            <Button
+              onClick={handleFileUpload}
+              disabled={isUploading}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground glow-cyan"
+            >
+              {isUploading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Parsing...
+                </>
+              ) : (
+                <>
+                  <Upload className="w-4 h-4 mr-2" />
+                  Upload PCAP
+                </>
+              )}
+            </Button>
+          </div>
         </div>
 
         {/* Stats */}
-        <TrafficStats {...stats} />
+        <TrafficStats
+          totalPackets={stats.totalPackets}
+          anomalies={stats.anomalies}
+          protocols={stats.protocols}
+          activeConnections={stats.activeConnections}
+        />
 
         {/* Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
