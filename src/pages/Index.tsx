@@ -1,14 +1,16 @@
 import { useState, useMemo, useRef } from "react";
-import { Upload, Activity, Loader2 } from "lucide-react";
+import { Upload, Activity, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TrafficStats } from "@/components/TrafficStats";
 import { PacketTable } from "@/components/PacketTable";
 import { ProtocolChart } from "@/components/ProtocolChart";
 import { TrafficTimeline } from "@/components/TrafficTimeline";
 import { FilterBar } from "@/components/FilterBar";
+import { AIInsights } from "@/components/AIInsights";
 import { generateMockPackets, generateProtocolData, generateTimelineData } from "@/utils/mockData";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { analyzeNetworkWithAI, AIInsights as AIInsightsType } from "@/services/geminiAI";
 
 const Index = () => {
   const { toast } = useToast();
@@ -26,6 +28,8 @@ const Index = () => {
   const [protocolFilter, setProtocolFilter] = useState("all");
   const [isUploading, setIsUploading] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [aiInsights, setAiInsights] = useState<AIInsightsType | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const filteredPackets = useMemo(() => {
     return packets.filter((packet) => {
@@ -76,6 +80,7 @@ const Index = () => {
       setTimelineData(data.timelineData);
       setStats(data.stats);
       setFileName(file.name);
+      setAiInsights(null); // Reset AI insights when new file is loaded
 
       toast({
         title: "PCAP Loaded Successfully",
@@ -94,6 +99,36 @@ const Index = () => {
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
+    }
+  };
+
+  const handleAIAnalysis = async () => {
+    setIsAnalyzing(true);
+    try {
+      const networkData = {
+        packets,
+        protocolData,
+        timelineData,
+        stats,
+      };
+
+      const insights = await analyzeNetworkWithAI(networkData);
+      setAiInsights(insights);
+
+      toast({
+        title: "AI Analysis Complete",
+        description: "Network insights have been generated successfully",
+      });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to analyze network data';
+      console.error('Error analyzing network:', error);
+      toast({
+        title: "AI Analysis Failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setIsAnalyzing(false);
     }
   };
 
@@ -116,7 +151,7 @@ const Index = () => {
               </p>
             )}
           </div>
-          <div>
+          <div className="flex gap-3">
             <input
               ref={fileInputRef}
               type="file"
@@ -141,6 +176,23 @@ const Index = () => {
                 </>
               )}
             </Button>
+            <Button
+              onClick={handleAIAnalysis}
+              disabled={isAnalyzing}
+              className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white"
+            >
+              {isAnalyzing ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Analyzing...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  AI Analysis
+                </>
+              )}
+            </Button>
           </div>
         </div>
 
@@ -157,6 +209,11 @@ const Index = () => {
           <ProtocolChart data={protocolData} />
           <TrafficTimeline data={timelineData} />
         </div>
+
+        {/* AI Insights */}
+        {aiInsights && (
+          <AIInsights insights={aiInsights} />
+        )}
 
         {/* Filter Bar */}
         <FilterBar
