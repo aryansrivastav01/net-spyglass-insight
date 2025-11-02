@@ -5,6 +5,8 @@ import { componentTagger } from "lovable-tagger";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
+  // Use a repo-base in production (GitHub Pages). Keep '/' for local dev.
+  base: mode === "development" ? "/" : "/net-spyglass-insight/",
   server: {
     host: "::",
     port: 8080,
